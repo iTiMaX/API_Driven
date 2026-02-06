@@ -13,6 +13,7 @@ rep_localstack/
 .env.state
 # Le package zippé de la lambda
 function.zip
+lambda_function.py
 
 # --- IDE & OS ---
 .vscode/
