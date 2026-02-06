@@ -1,0 +1,21 @@
+# --- Python & Venv ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+rep_localstack/
+
+# --- Artefacts du projet (Générés par le Makefile/setup.sh) ---
+# Le fichier d'état qui contient tes ID et URL temporaires
+.env.state
+# Le package zippé de la lambda
+function.zip
+
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+*.log
