@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# --- CONFIGURATION PATH (CRITIQUE) ---
+# --- CONFIGURATION PATH ---
 export PATH=$PATH:/home/codespace/.local/bin
-# -------------------------------------
+# --------------------------
 
 # Configuration globale
 REGION="us-east-1"
@@ -22,11 +22,11 @@ echo -e "${BLUE}Demarrage du deploiement automatise...${NC}"
 
 # 0. Verification outils de base
 if ! command -v aws &> /dev/null; then
-    echo -e "${YELLOW}Erreur: 'aws' commande introuvable. Relancez 'make deploy' pour l'installer.${NC}"
+    echo -e "${YELLOW}Erreur: 'aws' commande introuvable. Relancez 'make deploy'.${NC}"
     exit 1
 fi
 
-# 1. Gestion intelligente de LocalStack
+# 1. Gestion LocalStack
 echo -n "Verification de LocalStack... "
 if curl -s localhost:4566/_localstack/health > /dev/null; then
     echo -e "${GREEN}Deja demarre.${NC}"
@@ -34,7 +34,7 @@ else
     echo -e "${YELLOW}Non demarre. Lancement...${NC}"
     localstack start -d > /dev/null 2>&1
     
-    echo -n "   Attente disponibilite..."
+    echo -n "   Attente disponibilite service..."
     TIMEOUT=0
     until curl -s localhost:4566/_localstack/health > /dev/null; do
         sleep 2
@@ -48,12 +48,25 @@ else
     echo -e " ${GREEN}OK${NC}"
 fi
 
-# 2. Ouverture du port 4566 (Force le Codespace actuel)
-echo -n "Tentative ouverture port 4566 en public... "
+# 2. Synchronisation et Ouverture du port 4566
+echo -n "   Synchronisation du port 4566 avec Codespace..."
+# On attend que le port apparaisse dans la liste officielle des ports Codespace
+TIMEOUT_PORT=0
+until gh codespace ports -c "$CODESPACE_NAME" | grep -q "4566"; do
+    sleep 2
+    echo -n "."
+    ((TIMEOUT_PORT++))
+    if [ $TIMEOUT_PORT -gt 15 ]; then
+        echo -e " (Delai depasse, tentative forcee)"
+        break
+    fi
+done
+echo -e " ${GREEN}OK${NC}"
+
+echo -n "Passage du port 4566 en public... "
 if gh codespace ports visibility 4566:public -c "$CODESPACE_NAME" > /dev/null 2>&1; then
     echo -e "${GREEN}Succes${NC}"
 else
-    # Fallback si l'automatisation stricte échoue (rare)
     echo -e "\n${YELLOW}Attention : Confirmation manuelle requise par GitHub.${NC}"
     gh codespace ports visibility 4566:public
 fi
