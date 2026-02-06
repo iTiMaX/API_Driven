@@ -1,30 +1,64 @@
 #!/bin/bash
 
+# --- CONFIGURATION PATH (CRITIQUE) ---
+export PATH=$PATH:/home/codespace/.local/bin
+# -------------------------------------
+
 # Configuration globale
 REGION="us-east-1"
 API_NAME="EC2ControllerAPI"
 LAMBDA_NAME="ManageEC2"
 IMAGE_ID="ami-ff000000"
 CODESPACE_URL="https://${CODESPACE_NAME}-4566.app.github.dev/"
-gh codespace ports visibility 4566:public -c "$CODESPACE_NAME"
 
-# Couleurs pour la lisibilite des logs
+# Couleurs
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+RED='\033[0;31m'
+NC='\033[0m' 
 
-echo -e "${BLUE}Demarrage du deploiement (Support Navigateur/GET)...${NC}"
+echo -e "${BLUE}Demarrage du deploiement automatise...${NC}"
 
-# 0. Verification de LocalStack
-echo -n "Verification de LocalStack... "
-if ! curl -s localhost:4566/_localstack/health > /dev/null; then
-    echo -e "\n${YELLOW}Erreur : LocalStack non demarre (Port 4566 inaccessible).${NC}"
+# 0. Verification outils de base
+if ! command -v aws &> /dev/null; then
+    echo -e "${YELLOW}Erreur: 'aws' commande introuvable. Relancez 'make deploy' pour l'installer.${NC}"
     exit 1
 fi
-echo -e "${GREEN}OK${NC}"
 
-# 1. Generation du code Lambda (Support JSON Body + URL Parameters)
+# 1. Gestion intelligente de LocalStack
+echo -n "Verification de LocalStack... "
+if curl -s localhost:4566/_localstack/health > /dev/null; then
+    echo -e "${GREEN}Deja demarre.${NC}"
+else
+    echo -e "${YELLOW}Non demarre. Lancement...${NC}"
+    localstack start -d > /dev/null 2>&1
+    
+    echo -n "   Attente disponibilite..."
+    TIMEOUT=0
+    until curl -s localhost:4566/_localstack/health > /dev/null; do
+        sleep 2
+        echo -n "."
+        ((TIMEOUT++))
+        if [ $TIMEOUT -gt 30 ]; then
+            echo -e "\n${RED}Erreur: Timeout LocalStack.${NC}"
+            exit 1
+        fi
+    done
+    echo -e " ${GREEN}OK${NC}"
+fi
+
+# 2. Ouverture du port 4566 (Force le Codespace actuel)
+echo -n "Tentative ouverture port 4566 en public... "
+if gh codespace ports visibility 4566:public -c "$CODESPACE_NAME" > /dev/null 2>&1; then
+    echo -e "${GREEN}Succes${NC}"
+else
+    # Fallback si l'automatisation stricte échoue (rare)
+    echo -e "\n${YELLOW}Attention : Confirmation manuelle requise par GitHub.${NC}"
+    gh codespace ports visibility 4566:public
+fi
+
+# 3. Generation Lambda
 echo -e "${BLUE}Generation du code Lambda...${NC}"
 cat <<EOF > lambda_function.py
 import boto3
@@ -33,19 +67,14 @@ import os
 
 def lambda_handler(event, context):
     public_endpoint = "${CODESPACE_URL}"
-    # Configuration du client avec l'URL publique
     ec2 = boto3.client('ec2', endpoint_url=public_endpoint, region_name="${REGION}")
     
-    # 1. Tentative de lecture du Body (requete POST / Makefile)
     try:
         body = json.loads(event.get('body', '{}'))
     except:
         body = {}
         
-    # 2. Tentative de lecture de l'URL (requete GET / Navigateur)
     qs = event.get('queryStringParameters') or {}
-    
-    # Priorite aux donnees du body, fallback sur l'URL
     action = body.get('action') or qs.get('action')
     instance_id = body.get('instance_id') or qs.get('instance_id')
     
@@ -69,7 +98,7 @@ def lambda_handler(event, context):
             
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'status': 'success', 'message': msg})
         }
     except Exception as e:
@@ -78,8 +107,8 @@ EOF
 
 rm -f function.zip && zip -q function.zip lambda_function.py
 
-# 2. Configuration EC2
-echo -e "${BLUE}Configuration de l'instance EC2...${NC}"
+# 4. Configuration EC2
+echo -e "${BLUE}Configuration EC2...${NC}"
 EXISTING_INSTANCE=$(awslocal ec2 describe-instances --region $REGION --query "Reservations[].Instances[?State.Name!='terminated'].InstanceId" --output text)
 
 if [ -n "$EXISTING_INSTANCE" ] && [ "$EXISTING_INSTANCE" != "None" ]; then
@@ -90,18 +119,18 @@ else
     echo -e "   Nouvelle instance : ${GREEN}$INSTANCE_ID${NC}"
 fi
 
-# 3. Configuration Lambda
-echo -e "${BLUE}Configuration de la Lambda...${NC}"
+# 5. Configuration Lambda & API
+echo -e "${BLUE}Configuration Lambda & API...${NC}"
+
+# Lambda
 if awslocal lambda get-function --function-name $LAMBDA_NAME --region $REGION > /dev/null 2>&1; then
     awslocal lambda update-function-code --function-name $LAMBDA_NAME --zip-file fileb://function.zip --region $REGION > /dev/null
 else
     awslocal lambda create-function --function-name $LAMBDA_NAME --zip-file fileb://function.zip --handler lambda_function.lambda_handler --runtime python3.9 --role arn:aws:iam::000000000000:role/lambda-role --region $REGION > /dev/null
 fi
 
-# 4. Configuration API Gateway
-echo -e "${BLUE}Configuration de l'API Gateway...${NC}"
+# API Gateway
 EXISTING_API_ID=$(awslocal apigateway get-rest-apis --region $REGION | jq -r ".items[] | select(.name == \"$API_NAME\") | .id")
-
 if [ -n "$EXISTING_API_ID" ]; then
     awslocal apigateway delete-rest-api --rest-api-id $EXISTING_API_ID --region $REGION
 fi
@@ -110,16 +139,12 @@ API_ID=$(awslocal apigateway create-rest-api --name "$API_NAME" --region $REGION
 PARENT_ID=$(awslocal apigateway get-resources --rest-api-id $API_ID --region $REGION | jq -r '.items[0].id')
 RESOURCE_ID=$(awslocal apigateway create-resource --rest-api-id $API_ID --parent-id $PARENT_ID --path-part manage --region $REGION | jq -r '.id')
 
-# Utilisation de ANY pour supporter GET (navigateur) et POST (curl)
 awslocal apigateway put-method --rest-api-id $API_ID --resource-id $RESOURCE_ID --http-method ANY --authorization-type "NONE" --region $REGION > /dev/null
 awslocal apigateway put-integration --rest-api-id $API_ID --resource-id $RESOURCE_ID --http-method ANY --type AWS_PROXY --integration-http-method POST --uri arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:000000000000:function:$LAMBDA_NAME/invocations --region $REGION > /dev/null
-
 awslocal apigateway create-deployment --rest-api-id $API_ID --stage-name prod --region $REGION > /dev/null
 
-# 5. Affichage des resultats
+# 6. Affichage
 BASE_URL="${CODESPACE_URL}restapis/${API_ID}/prod/_user_request_/manage"
-
-# Sauvegarde de l'etat
 echo "INSTANCE_ID=$INSTANCE_ID" > .env.state
 echo "API_URL=$BASE_URL" >> .env.state
 
@@ -128,7 +153,7 @@ echo -e "${GREEN}DEPLOIEMENT TERMINE${NC}"
 echo "------------------------------------------------"
 echo "Instance ID : $INSTANCE_ID"
 echo ""
-echo "Liens de controle direct (Navigateur) :"
+echo "Liens de controle (Navigateur) :"
 echo -e "START  : ${BLUE}${BASE_URL}?action=start&instance_id=${INSTANCE_ID}${NC}"
 echo -e "STOP   : ${BLUE}${BASE_URL}?action=stop&instance_id=${INSTANCE_ID}${NC}"
 echo -e "STATUS : ${BLUE}${BASE_URL}?action=status&instance_id=${INSTANCE_ID}${NC}"
