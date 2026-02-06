@@ -1,83 +1,75 @@
-------------------------------------------------------------------------------------------------------
-ATELIER API-DRIVEN INFRASTRUCTURE
-------------------------------------------------------------------------------------------------------
-L’idée en 30 secondes : **Orchestration de services AWS via API Gateway et Lambda dans un environnement émulé**.  
-Cet atelier propose de concevoir une architecture **API-driven** dans laquelle une requête HTTP déclenche, via **API Gateway** et une **fonction Lambda**, des actions d’infrastructure sur des **instances EC2**, le tout dans un **environnement AWS simulé avec LocalStack** et exécuté dans **GitHub Codespaces**. L’objectif est de comprendre comment des services cloud serverless peuvent piloter dynamiquement des ressources d’infrastructure, indépendamment de toute console graphique.Cet atelier propose de concevoir une architecture API-driven dans laquelle une requête HTTP déclenche, via API Gateway et une fonction Lambda, des actions d’infrastructure sur des instances EC2, le tout dans un environnement AWS simulé avec LocalStack et exécuté dans GitHub Codespaces. L’objectif est de comprendre comment des services cloud serverless peuvent piloter dynamiquement des ressources d’infrastructure, indépendamment de toute console graphique.
-  
--------------------------------------------------------------------------------------------------------
-Séquence 1 : Codespace de Github
--------------------------------------------------------------------------------------------------------
-Objectif : Création d'un Codespace Github  
-Difficulté : Très facile (~5 minutes)
--------------------------------------------------------------------------------------------------------
-RDV sur Codespace de Github : <a href="https://github.com/features/codespaces" target="_blank">Codespace</a> **(click droit ouvrir dans un nouvel onglet)** puis créer un nouveau Codespace qui sera connecté à votre Repository API-Driven.
-  
----------------------------------------------------
-Séquence 2 : Création de l'environnement AWS (LocalStack)
----------------------------------------------------
-Objectif : Créer l'environnement AWS simulé avec LocalStack  
-Difficulté : Simple (~5 minutes)
----------------------------------------------------
+# Séquence 10 : API-DRIVEN INFRASTRUCTURE
 
-Dans le terminal du Codespace copier/coller les codes ci-dessous etape par étape :  
+Ce projet répond à l'atelier "API-Driven Infrastructure". L'objectif est de piloter des ressources d'infrastructure (instances EC2) via des appels HTTP standard, en utilisant une architecture Serverless (API Gateway + Lambda) émulée par LocalStack dans un environnement GitHub Codespaces.
 
-**Installation de l'émulateur LocalStack**  
-```
-sudo -i mkdir rep_localstack
-```
-```
-sudo -i python3 -m venv ./rep_localstack
-```
-```
-sudo -i pip install --upgrade pip && python3 -m pip install localstack && export S3_SKIP_SIGNATURE_VALIDATION=0
-```
-```
-localstack start -d
-```
-**vérification des services disponibles**  
-```
-localstack status services
-```
-**Réccupération de l'API AWS Localstack** 
-Votre environnement AWS (LocalStack) est prêt. Pour obtenir votre AWS_ENDPOINT cliquez sur l'onglet **[PORTS]** dans votre Codespace et rendez public votre port **4566** (Visibilité du port).
-Réccupérer l'URL de ce port dans votre navigateur qui sera votre ENDPOINT AWS (c'est à dire votre environnement AWS).
-Conservez bien cette URL car vous en aurez besoin par la suite.  
+## Architecture
 
-Pour information : IL n'y a rien dans votre navigateur et c'est normal car il s'agit d'une API AWS (Pas un développement Web type UX).
+Le système repose sur le flux suivant :
 
----------------------------------------------------
-Séquence 3 : Exercice
----------------------------------------------------
-Objectif : Customisez un image Docker avec Packer et déploiement sur K3d via Ansible
-Difficulté : Moyen/Difficile (~2h)
----------------------------------------------------  
-Votre mission (si vous l'acceptez) : Concevoir une architecture **API-driven** dans laquelle une requête HTTP déclenche, via **API Gateway** et une **fonction Lambda**, lancera ou stopera une **instance EC2** déposée dans **environnement AWS simulé avec LocalStack** et qui sera exécuté dans **GitHub Codespaces**. [Option] Remplacez l'instance EC2 par l'arrêt ou le lancement d'un Docker.  
+1. **Client** : Envoie une requête HTTP (POST via Makefile ou GET via Navigateur).
+2. **API Gateway** : Configurée avec la méthode `ANY`, elle reçoit la requête et la transmet à la Lambda.
+3. **AWS Lambda** : Exécute le code Python (Boto3). Elle analyse soit le corps de la requête (JSON), soit les paramètres d'URL (Query String) pour déterminer l'action.
+4. **EC2 (LocalStack)** : L'instance est démarrée, arrêtée ou consultée.
 
-**Architecture cible :** Ci-dessous, l'architecture cible souhaitée.   
-  
-![Screenshot Actions](API_Driven.png)   
-  
----------------------------------------------------  
-## Processus de travail (résumé)
+## Automatisation
 
-1. Installation de l'environnement Localstack (Séquence 1)
-2. Création de l'instance EC2
-3. Création des API (+ fonction Lambda)
-4. Ouverture des ports et vérification du fonctionnement
+Le projet inclut une chaîne d'automatisation complète via un `Makefile` et un script `setup.sh`. Cette approche garantit :
 
----------------------------------------------------
-Séquence 4 : Documentation  
-Difficulté : Facile (~30 minutes)
----------------------------------------------------
-**Complétez et documentez ce fichier README.md** pour nous expliquer comment utiliser votre solution.  
-Faites preuve de pédagogie et soyez clair dans vos expliquations et processus de travail.  
-   
----------------------------------------------------
-Evaluation
----------------------------------------------------
-Cet atelier, **noté sur 20 points**, est évalué sur la base du barème suivant :  
-- Repository exécutable sans erreur majeure (4 points)
-- Fonctionnement conforme au scénario annoncé (4 points)
-- Degré d'automatisation du projet (utilisation de Makefile ? script ? ...) (4 points)
-- Qualité du Readme (lisibilité, erreur, ...) (4 points)
-- Processus travail (quantité de commits, cohérence globale, interventions externes, ...) (4 points) 
+* **Idempotence** : Le script peut être relancé sans casser l'infrastructure existante (vérification de l'existence des ressources avant création).
+* **Configuration dynamique** : L'URL publique du Codespace est détectée automatiquement et injectée dans le code de la Lambda au moment du déploiement.
+
+## Guide d'utilisation
+
+### 1. Installation et Déploiement
+
+Une seule commande permet d'installer les dépendances système (`jq`, `awscli-local`, `zip`) et de déployer l'infrastructure complète.
+
+```bash
+make deploy
+```
+
+*En fin de déploiement, le script affiche les URLs directes pour tester depuis un navigateur.*
+
+### 2. Pilotage via CLI (Makefile)
+
+Utilisez les commandes suivantes pour interagir avec l'API en ligne de commande :
+
+| Commande | Description |
+| --- | --- |
+| `make start` | Envoie une requête POST pour **démarrer** l'instance. |
+| `make stop` | Envoie une requête POST pour **arrêter** l'instance. |
+| `make status` | Interroge l'API pour récupérer l'**état actuel**. |
+
+### 3. Pilotage via Navigateur (Method GET)
+
+L'API supporte les requêtes GET. Vous pouvez copier-coller les liens générés par le script `make deploy` ou construire l'URL manuellement :
+
+Format : `https://<URL_CODESPACE>/restapis/<API_ID>/prod/_user_request_/manage?action=<ACTION>&instance_id=<ID>`
+
+Actions valides : `start`, `stop`, `status`.
+
+### 4. Nettoyage
+
+Pour supprimer les fichiers temporaires locaux :
+
+```bash
+make clean
+```
+
+## Structure du projet
+
+* **Makefile** : Orchestrateur des commandes.
+* **setup.sh** : Script de déploiement. Configure API Gateway en mode `ANY` et génère le code Lambda pour supporter le double mode d'entrée (JSON Body / Query Params).
+* **.gitignore** : Exclusion des fichiers temporaires.
+* **lambda_function.py** : (Généré) Logique métier Boto3.
+
+## Choix techniques
+
+**Support Hybride GET/POST**
+Pour faciliter les tests et la démonstration, l'API Gateway est configurée avec la méthode `ANY`. La fonction Lambda a été adaptée pour lire la priorité des instructions :
+
+1. Si un corps JSON est présent (appel via `curl`/`make`), il est utilisé.
+2. Sinon, les paramètres d'URL (`queryStringParameters`) sont utilisés (appel via navigateur).
+
+**Contournement Réseau Docker**
+Pour respecter la contrainte "API-Driven", la Lambda ne s'adresse pas à `localhost` (réseau interne inaccessible depuis le conteneur Lambda). Le script injecte l'URL publique du Codespace (`github.dev`) dans le client Boto3, simulant un accès externe réaliste.
