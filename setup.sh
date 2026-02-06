@@ -48,26 +48,28 @@ else
     echo -e " ${GREEN}OK${NC}"
 fi
 
-# 2. Synchronisation et Ouverture du port 4566
-echo -n "   Synchronisation du port 4566 avec Codespace..."
-# On attend que le port apparaisse dans la liste officielle des ports Codespace
-TIMEOUT_PORT=0
-until gh codespace ports -c "$CODESPACE_NAME" | grep -q "4566"; do
-    sleep 2
-    echo -n "."
-    ((TIMEOUT_PORT++))
-    if [ $TIMEOUT_PORT -gt 15 ]; then
-        echo -e " (Delai depasse, tentative forcee)"
+# 2. Ouverture du port 4566 (Boucle active)
+echo -n "Passage du port 4566 en public..."
+MAX_RETRIES=20
+COUNT=0
+SUCCESS=0
+
+while [ $COUNT -lt $MAX_RETRIES ]; do
+    # On essaie directement de passer en public. Si ca marche, on sort.
+    if gh codespace ports visibility 4566:public -c "$CODESPACE_NAME" > /dev/null 2>&1; then
+        SUCCESS=1
         break
     fi
+    sleep 1
+    echo -n "."
+    ((COUNT++))
 done
-echo -e " ${GREEN}OK${NC}"
 
-echo -n "Passage du port 4566 en public... "
-if gh codespace ports visibility 4566:public -c "$CODESPACE_NAME" > /dev/null 2>&1; then
-    echo -e "${GREEN}Succes${NC}"
+if [ $SUCCESS -eq 1 ]; then
+    echo -e " ${GREEN}Succes${NC}"
 else
-    echo -e "\n${YELLOW}Attention : Confirmation manuelle requise par GitHub.${NC}"
+    # Fallback manuel si l'API GitHub bloque toujours
+    echo -e "\n${YELLOW}Attention : Le port est actif mais la visibilite n'a pas pu etre forcee.${NC}"
     gh codespace ports visibility 4566:public
 fi
 
@@ -162,7 +164,7 @@ echo "INSTANCE_ID=$INSTANCE_ID" > .env.state
 echo "API_URL=$BASE_URL" >> .env.state
 
 echo "------------------------------------------------"
-echo -e "${GREEN}DEPLOIEMENT TERMINE${NC}"
+echo -e "🎉 ${GREEN}DEPLOIEMENT TERMINE${NC}"
 echo "------------------------------------------------"
 echo "Instance ID : $INSTANCE_ID"
 echo ""
